@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRID REAPER — Browser Demo</title>
+<style>
+  /* art-bible Section 4 color palette */
+  :root {
+    --void-black: #1A1A2E;
+    --grid-slate: #2D2D4A;
+    --danger-cyan: #00E5CC;
+    --player-white: #FFFFFF;
+    --gold: #F5A623;
+    --death-rose: #FF3366;
+    --slate-text: #999;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background: var(--void-black);
+    color: var(--player-white);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    max-width: 100%;
+    padding: 20px;
+    position: relative;
+  }
+
+  #title {
+    text-align: center;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    margin-bottom: 12px;
+  }
+
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--grid-slate);
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  #hud > div {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  #time-label { color: var(--slate-text); font-weight: 400; }
+
+  #game {
+    background: var(--void-black);
+    border: 2px solid var(--grid-slate);
+    border-radius: 4px;
+    touch-action: none;
+    display: block;
+    margin: 0 auto;
+  }
+
+  #help {
+    text-align: center;
+    font-size: 11px;
+    color: var(--slate-text);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  #help kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--grid-slate);
+    border-radius: 3px;
+    font-family: monospace;
+    color: var(--player-white);
+    font-size: 11px;
+  }
+
+  #controls {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+    gap: 12px;
+  }
+
+  button.primary {
+    background: var(--danger-cyan);
+    color: var(--void-black);
+    border: none;
+    padding: 14px 28px;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 2px;
+  }
+  button.primary:active { transform: scale(0.97); }
+
+  button.secondary {
+    background: transparent;
+    color: var(--player-white);
+    border: 1px solid var(--player-white);
+    padding: 8px 16px;
+    font-size: 13px;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0.7;
+  }
+
+  /* Touch joystick area (mobile) */
+  #touchpad {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(3, 60px);
+    grid-template-rows: repeat(3, 60px);
+    gap: 6px;
+    justify-content: center;
+  }
+  .dir-btn {
+    background: var(--grid-slate);
+    border: none;
+    color: var(--player-white);
+    font-size: 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .dir-btn:active { background: var(--danger-cyan); color: var(--void-black); }
+
+  /* Overlay */
+  #overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(26, 26, 46, 0.85);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    gap: 16px;
+    border-radius: 8px;
+    z-index: 10;
+  }
+  #overlay.show { display: flex; }
+  #overlay-message {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 4px;
+  }
+  #overlay-message.gold { color: var(--gold); }
+  #overlay-detail {
+    font-size: 14px;
+    color: var(--slate-text);
+  }
+
+  /* Death Replay overlay (FairFeedback) */
+  .death-flash {
+    animation: pulse 700ms ease-out;
+  }
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    20% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="title">GRID&nbsp;REAPER</div>
+  <div id="hud">
+    <div id="round-label">Round &mdash;</div>
+    <div id="alive-label">&mdash; alive</div>
+    <div id="time-label">&mdash;.&mdash;s</div>
+  </div>
+
+  <canvas id="game" width="320" height="320"></canvas>
+
+  <div id="touchpad">
+    <button class="dir-btn" data-dir="UP_LEFT">↖</button>
+    <button class="dir-btn" data-dir="UP">↑</button>
+    <button class="dir-btn" data-dir="UP_RIGHT">↗</button>
+    <button class="dir-btn" data-dir="LEFT">←</button>
+    <button class="dir-btn" disabled style="opacity:0.3;">●</button>
+    <button class="dir-btn" data-dir="RIGHT">→</button>
+    <button class="dir-btn" data-dir="DOWN_LEFT">↙</button>
+    <button class="dir-btn" data-dir="DOWN">↓</button>
+    <button class="dir-btn" data-dir="DOWN_RIGHT">↘</button>
+  </div>
+
+  <div id="help">
+    <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> 4방향 / <kbd>Q</kbd> <kbd>E</kbd> <kbd>Z</kbd> <kbd>C</kbd> 대각선
+    <br>또는 위 터치패드 사용
+  </div>
+
+  <div id="controls">
+    <button id="start-btn" class="primary">START</button>
+  </div>
+
+  <div id="overlay">
+    <div id="overlay-message"></div>
+    <div id="overlay-detail"></div>
+    <button id="restart-btn" class="primary">RESTART</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+// GRID REAPER — Browser Demo (단일 플레이어, throwaway prototype)
+//
+// 본 데모는 src/ 코드를 사용하지 않고 게임 felt 검증용으로 단순 시뮬레이션.
+// 색상은 design/art/art-bible.md § 4 그대로 적용.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ──────────────── Constants ────────────────
+const GRID_SIZE = 8;
+const CELL_PX = 40;
+const GATE_PERIOD_BASE = 2.0;
+const GATE_PERIOD_FLOOR = 1.4;
+const GATE_PERIOD_STEP = 0.05;
+const T_EX = 0.35;
+const ROUND_TIME_LIMIT = 60.0;
+const ROUND_CLEAR_DISPLAY_MS = 1500;
+const GATE_RATIO_BASE = 0.45;     // 라운드 1: 45% gate
+const GATE_RATIO_INCREMENT = 0.02; // 라운드별 +2%
+const GATE_RATIO_MAX = 0.78;       // 56/64
+const FEEDBACK_DURATION_MS = 700;
+
+const COLOR = {
+  voidBlack: '#1A1A2E',
+  gridSlate: '#2D2D4A',
+  gateIdle: '#3a3a5a',
+  dangerCyan: '#00E5CC',
+  playerWhite: '#FFFFFF',
+  gold: '#F5A623',
+  deathRose: '#FF3366',
+};
+
+// ──────────────── Game state ────────────────
+const state = {
+  phase: 'MENU',          // MENU | ACTIVE | RESULT_GAME_OVER | RESULT_ROUND_CLEAR
+  round: 0,
+  alive: 1,
+  remaining: ROUND_TIME_LIMIT,
+  gatePeriod: GATE_PERIOD_BASE,
+  cells: [],              // 64 cells: { gate: bool, offset: number, exploded: bool }
+  player: { row: 0, col: 0 },
+  goal: { row: 7, col: 7 },
+  startTime: 0,            // Date.now() in ms — round 시작 시점
+  lastFrameTime: 0,
+  deathFlashCells: [],     // FairFeedback — 사망 시 강조할 cell들
+  deathFlashUntil: 0,
+};
+
+// ──────────────── Pattern generation ────────────────
+function applyPattern(round) {
+  state.gatePeriod = Math.max(
+    GATE_PERIOD_FLOOR,
+    GATE_PERIOD_BASE - (round - 1) * GATE_PERIOD_STEP,
+  );
+  const gateRatio = Math.min(
+    GATE_RATIO_MAX,
+    GATE_RATIO_BASE + (round - 1) * GATE_RATIO_INCREMENT,
+  );
+  const gateCount = Math.floor(64 * gateRatio);
+  const indices = Array.from({ length: 64 }, (_, i) => i);
+
+  // Shuffle (Fisher-Yates)
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  // Force start cell (0,0) to be safe
+  const startIdx = 0;
+  const startInGate = indices.indexOf(startIdx);
+  if (startInGate >= 0 && startInGate < gateCount) {
+    // swap with last non-gate
+    const nonGateIdx = indices[gateCount];
+    indices[startInGate] = nonGateIdx;
+    indices[gateCount] = startIdx;
+  }
+  const gateSet = new Set(indices.slice(0, gateCount));
+
+  state.cells = [];
+  for (let i = 0; i < 64; i++) {
+    const isGate = gateSet.has(i);
+    state.cells.push({
+      gate: isGate,
+      offset: isGate ? Math.random() * state.gatePeriod : 0,
+      exploded: false,
+    });
+  }
+}
+
+function pickGoalCell() {
+  // 시작 셀에서 가장 먼 안전 셀 (Manhattan distance)
+  const start = state.player;
+  let bestDist = -1;
+  let bestIdx = 63;
+  for (let i = 0; i < 64; i++) {
+    const r = Math.floor(i / 8);
+    const c = i % 8;
+    if (state.cells[i].gate) continue;
+    const d = Math.abs(r - start.row) + Math.abs(c - start.col);
+    if (d > bestDist) {
+      bestDist = d;
+      bestIdx = i;
+    }
+  }
+  return { row: Math.floor(bestIdx / 8), col: bestIdx % 8 };
+}
+
+// ──────────────── Round flow ────────────────
+function startRound(round) {
+  state.round = round;
+  state.remaining = ROUND_TIME_LIMIT;
+  state.player = { row: 0, col: 0 };
+  applyPattern(round);
+  state.goal = pickGoalCell();
+  state.startTime = performance.now();
+  state.phase = 'ACTIVE';
+  hideOverlay();
+}
+
+function triggerGameOver() {
+  state.phase = 'RESULT_GAME_OVER';
+  // FairFeedback — 사망 셀 + 인접 위험 셀 강조
+  const idx = state.player.row * 8 + state.player.col;
+  state.deathFlashCells = [idx];
+  state.deathFlashUntil = performance.now() + FEEDBACK_DURATION_MS;
+  setTimeout(() => {
+    showOverlay('GAME OVER', `Final Round: ${state.round}`, false);
+  }, 350); // 사망 강조 후 overlay
+}
+
+function triggerRoundClear() {
+  state.phase = 'RESULT_ROUND_CLEAR';
+  showOverlay('ROUND CLEAR', `Round ${state.round} 통과 → ${state.round + 1}`, true);
+  setTimeout(() => {
+    if (state.phase === 'RESULT_ROUND_CLEAR') {
+      startRound(state.round + 1);
+    }
+  }, ROUND_CLEAR_DISPLAY_MS);
+}
+
+// ──────────────── Tick logic ────────────────
+function update(now, dt) {
+  if (state.phase !== 'ACTIVE') return;
+
+  const elapsed = (now - state.startTime) / 1000;
+
+  // Update each gate cell phase
+  const safeWin = state.gatePeriod - T_EX;
+  for (const cell of state.cells) {
+    if (!cell.gate) continue;
+    let phase = (elapsed - cell.offset) % state.gatePeriod;
+    if (phase < 0) phase += state.gatePeriod;
+    cell.exploded = phase >= safeWin;
+  }
+
+  // Timer countdown
+  state.remaining -= dt;
+  if (state.remaining <= 0) {
+    state.remaining = 0;
+    triggerGameOver();
+    return;
+  }
+
+  // Death check (player landed on EXPLODED cell)
+  const idx = state.player.row * 8 + state.player.col;
+  if (state.cells[idx].gate && state.cells[idx].exploded) {
+    triggerGameOver();
+    return;
+  }
+
+  // Goal check
+  if (state.player.row === state.goal.row && state.player.col === state.goal.col) {
+    triggerRoundClear();
+    return;
+  }
+}
+
+function tryMove(dRow, dCol) {
+  if (state.phase !== 'ACTIVE') return;
+  const newRow = state.player.row + dRow;
+  const newCol = state.player.col + dCol;
+  if (newRow < 0 || newRow > 7 || newCol < 0 || newCol > 7) return;
+  state.player.row = newRow;
+  state.player.col = newCol;
+}
+
+// ──────────────── Render ────────────────
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+function render(now) {
+  ctx.fillStyle = COLOR.voidBlack;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Cells
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const idx = row * 8 + col;
+      const cell = state.cells[idx];
+      const x = col * CELL_PX;
+      const y = row * CELL_PX;
+
+      // Background
+      let fill;
+      if (!cell || !cell.gate) {
+        fill = COLOR.gridSlate;
+      } else if (cell.exploded) {
+        fill = COLOR.dangerCyan;
+      } else {
+        fill = COLOR.gateIdle;
+      }
+      ctx.fillStyle = fill;
+      ctx.fillRect(x + 2, y + 2, CELL_PX - 4, CELL_PX - 4);
+
+      // Death flash (FairFeedback)
+      if (state.deathFlashCells.includes(idx) && now < state.deathFlashUntil) {
+        const t = 1 - (state.deathFlashUntil - now) / FEEDBACK_DURATION_MS;
+        const alpha = 1 - t;
+        ctx.fillStyle = `rgba(255, 51, 102, ${alpha})`;
+        ctx.fillRect(x + 2, y + 2, CELL_PX - 4, CELL_PX - 4);
+        ctx.strokeStyle = COLOR.deathRose;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x + 3, y + 3, CELL_PX - 6, CELL_PX - 6);
+      }
+    }
+  }
+
+  // Goal highlight (pulsing)
+  if (state.phase === 'ACTIVE') {
+    const goalX = state.goal.col * CELL_PX;
+    const goalY = state.goal.row * CELL_PX;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 250);
+    ctx.strokeStyle = COLOR.gold;
+    ctx.lineWidth = 2 + pulse * 2;
+    ctx.strokeRect(goalX + 4, goalY + 4, CELL_PX - 8, CELL_PX - 8);
+  }
+
+  // Player (alive only)
+  if (state.phase === 'ACTIVE' || state.phase === 'RESULT_GAME_OVER' || state.phase === 'RESULT_ROUND_CLEAR') {
+    const px = state.player.col * CELL_PX + CELL_PX / 2;
+    const py = state.player.row * CELL_PX + CELL_PX / 2;
+    ctx.beginPath();
+    ctx.arc(px, py, CELL_PX * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = state.phase === 'RESULT_GAME_OVER' ? COLOR.deathRose : COLOR.playerWhite;
+    ctx.fill();
+    ctx.strokeStyle = COLOR.dangerCyan;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+function updateHUD() {
+  document.getElementById('round-label').textContent = state.round
+    ? `Round ${state.round}`
+    : 'Round —';
+  document.getElementById('alive-label').textContent = `${state.alive} alive`;
+  document.getElementById('time-label').textContent =
+    state.phase === 'ACTIVE' ? `${state.remaining.toFixed(1)}s` : '—.—s';
+}
+
+// ──────────────── Main loop ────────────────
+function loop(now) {
+  if (!state.lastFrameTime) state.lastFrameTime = now;
+  const dt = (now - state.lastFrameTime) / 1000;
+  state.lastFrameTime = now;
+  update(now, dt);
+  render(now);
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+// ──────────────── Overlay UI ────────────────
+function showOverlay(message, detail, isClear) {
+  const m = document.getElementById('overlay-message');
+  const d = document.getElementById('overlay-detail');
+  m.textContent = message;
+  m.className = isClear ? 'gold' : '';
+  d.textContent = detail;
+  document.getElementById('overlay').classList.add('show');
+}
+function hideOverlay() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+// ──────────────── Input ────────────────
+const KEY_TO_DELTA = {
+  ArrowUp: [-1, 0], ArrowDown: [1, 0],
+  ArrowLeft: [0, -1], ArrowRight: [0, 1],
+  q: [-1, -1], Q: [-1, -1],
+  e: [-1, 1], E: [-1, 1],
+  z: [1, -1], Z: [1, -1],
+  c: [1, 1], C: [1, 1],
+};
+
+const DIR_TO_DELTA = {
+  UP: [-1, 0], DOWN: [1, 0],
+  LEFT: [0, -1], RIGHT: [0, 1],
+  UP_LEFT: [-1, -1], UP_RIGHT: [-1, 1],
+  DOWN_LEFT: [1, -1], DOWN_RIGHT: [1, 1],
+};
+
+document.addEventListener('keydown', (e) => {
+  const delta = KEY_TO_DELTA[e.key];
+  if (delta) {
+    e.preventDefault();
+    tryMove(delta[0], delta[1]);
+  }
+});
+
+document.querySelectorAll('.dir-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const dir = btn.dataset.dir;
+    const delta = DIR_TO_DELTA[dir];
+    if (delta) tryMove(delta[0], delta[1]);
+  });
+});
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  startRound(1);
+});
+document.getElementById('restart-btn').addEventListener('click', () => {
+  startRound(1);
+});
+
+// Boot
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
