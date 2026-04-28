@@ -24,33 +24,786 @@
 #
 # STATUS VALUES: active | deprecated | superseded-by: TR-[system]-NNN
 
-version: 1
-last_updated: ""
+version: 2
+last_updated: "2026-04-22"
 
-requirements: []
+requirements:
+  # ════════════════════════════════════════════════════════════════════════
+  # FOUNDATION LAYER (cross-cutting infrastructure)
+  # ════════════════════════════════════════════════════════════════════════
 
-# --- EXAMPLE ENTRIES (remove when first real entries are added) ---
-#
-# - id: TR-combat-001
-#   system: combat
-#   gdd: design/gdd/combat-system.md
-#   requirement: "Player takes damage from enemies based on attack power minus defence"
-#   created: 2026-03-10
-#   revised: ""
-#   status: active
-#
-# - id: TR-combat-002
-#   system: combat
-#   gdd: design/gdd/combat-system.md
-#   requirement: "Combo window timing is 0.4 seconds between hits"
-#   created: 2026-03-10
-#   revised: "2026-04-01"
-#   status: active
-#
-# - id: TR-combat-003
-#   system: combat
-#   gdd: design/gdd/combat-system.md
-#   requirement: "Old damage formula using raw stats"
-#   created: 2026-03-10
-#   revised: ""
-#   status: superseded-by: TR-combat-001
+  - id: TR-foundation-001
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "EventBus frame-flush queue: emit() enqueues, flush() drains FIFO once per FrameClock.tick()"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-002
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "FrameClock simulatedTime: += dt per tick, schedule(fn, delay) deterministic queue, no Date.now()"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-003
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "Unidirectional layer dependency: Platform → Foundation → Core → Feature → Presentation, with 2 named exceptions (RoundEscalation→GridSimulation.setGatePeriod, DeathReplay→GridSimulation.getCellState read-only)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-004
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "ITossBridge interface with StubTossBridge for unit tests (DI pattern)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-005
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "TossBridge.init() completes before EventBus subscribers register (init step 2 of 6)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-006
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "TossBridge.getUserToken() returns Toss auth token; getSafeArea() returns {top,bottom,left,right} for HUD layout"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-007
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "IWebSocketClient interface with MockWebSocketClient stub for unit tests; handlers map-based"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-008
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "CellCoord = {row: 0-7, col: 0-7} canonical; CellIndex = row*8+col serialization-only; cellToIndex/indexToCell/isValidCell/cellEquals helpers; GRID_SIZE = 8"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-foundation-009
+    system: foundation
+    gdd: docs/architecture/architecture.md
+    requirement: "granite.config.ts with appName, displayName, icon, color for Toss 인토스 build"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # GRID EXPLOSION (Core)
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-gridexplosion-001
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "Cell state machine: Idle → Warn → Danger → Explode → Cooldown → Idle (cyclic)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-002
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "CELL_STATE_CHANGED event emitted on every state transition (cellId, fromState, toState, timestamp)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-003
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "Explosion timing accuracy ±16ms against simulatedTime (gate cells trigger on scheduled tick)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-004
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "setGatePeriod(seconds) accepts only [GATE_PERIOD_FLOOR=1.4, GATE_PERIOD_BASE=2.0]; out-of-range values rejected with warn log"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-005
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "Processing order: player movement resolves logical coord before explosion detection within the same frame"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-006
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "PLAYER_KILLED event emitted with cause='EXPLOSION' or 'DANGER_ZONE'; cellId + playerIds[] + timestamp"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-007
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "Simultaneous death: PLAYER_KILLED { playerIds: PlayerId[] } supports array of victims at the same cell"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-008
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "MIN_SAFE_CELLS = 8 — pattern candidate rejected at runtime if 64 - cells.length < 8"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-009
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "BFS connectivity check at runtime: safe cells (non-explode) form a single connected region on 8x8 grid"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-010
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "PATTERN_REJECTED event on runtime validation failure; GRID_STALLED after 3 consecutive failures (~3.0s window)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-011
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "Empty-pattern round skip: GridSimulation.applyEmptyPattern() when Tier 1 exhausts retries"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-012
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "T_EX = 0.35s fixed explosion duration, independent of GATE_PERIOD"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-gridexplosion-013
+    system: gridexplosion
+    gdd: design/gdd/grid-explosion.md
+    requirement: "SAFE_WIN(R) = GATE_PERIOD(R) − T_EX ≥ 0.45s invariant for all rounds"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # PATTERN LIBRARY (Core)
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-patternlibrary-001
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "PatternRecord schema { patternId: string, cells: CellCoord[], tier: 1|2|3, category: PatternCategory, symmetryAxis: PatternSymmetry, bfsVerified: boolean }"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-002
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "MIN_POOL_PER_TIER = 6 patterns; MVP initial set = T1×6 + T2×6 + T3×6 = 18 patterns"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-003
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "N_recent = min(3, floor(pool/2)) — recently-used patterns excluded from candidate pool"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-004
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "Deterministic pattern selection: candidates[seed % candidates.length] using server-provided seed"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-005
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "Runtime secondary validation: safeCellCount >= 8 AND BFS single-region check before ExplodePattern delivery"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-006
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "3 consecutive validation failures → emit GRID_STALLED { roundNumber, timestamp }"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-007
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "stalledFallback=true ESCALATION_COMPUTED consumer: re-select with demoted tier, retry up to 3x before re-emitting GRID_STALLED"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-008
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "Build-time BFS unit test validates bfsVerified=true for every pattern in PatternData.ts"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-009
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "Static import loading (PATTERNS: PatternRecord[]) — no async asset loading; no resources.load()"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-010
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "ExplodePattern { cells: CellCoord[], patternId: string } contract type — strip metadata from PatternRecord before handoff to GridSimulation"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-patternlibrary-011
+    system: patternlibrary
+    gdd: design/gdd/pattern-library.md
+    requirement: "DifficultyContext { tier: 1|2|3, roundNumber: number } input to selectPattern(ctx, seed)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # PLAYER MOVEMENT (Core)
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-playermovement-001
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Direction8 8-way movement (N, NE, E, SE, S, SW, W, NW)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-002
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Floating joystick input with JOY_THRESHOLD = 18px deadzone"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-003
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "MOVE_REPEAT = 0.22s hold-to-repeat cadence"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-004
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Logical coord (CellCoord) updates immediately at t=0 on valid input (before visual tween)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-005
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "PLAYER_MOVED { playerId, from, to, timestamp } emitted at t=0; explosion detection uses this logical coord"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-006
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "MOVE_TWEEN_DURATION = 0.1s visual tween from source cell to target cell"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-007
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "PLAYER_ARRIVED { playerId, cell, timestamp } emitted at t=0.1s via FrameClock.schedule; triggers Goal Cell detection"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-008
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "PLAYER_KILLED handler cancels pending PLAYER_ARRIVED schedule (cancelSchedule) to prevent post-death Goal hit"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-009
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "ROUND_CLEAR / GAME_OVER handler snaps active tween and cancels pending arrived schedule"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-010
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Grid boundary rejection: input producing out-of-range CellCoord is dropped, no PLAYER_MOVED emitted"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-011
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Occupied-cell collision: input toward a cell occupied by another live player is rejected"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-012
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Client sends MOVE { direction, fromCell: CellIndex, timestamp: simulatedTime } to server"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-013
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Remote PLAYER_MOVE broadcast from server triggers local-side logical coord update for the remote player"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-014
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "Input buffering during tween (single queued direction); buffer cleared on PLAYER_KILLED"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-playermovement-015
+    system: playermovement
+    gdd: design/gdd/player-movement.md
+    requirement: "EC-1: explosion on source cell during tween does not kill player (logical coord already moved)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # FAIR FEEDBACK (Presentation)
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-fairfeedback-001
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "FEEDBACK_DURATION = 700ms Death Rose overlay on PLAYER_KILLED reveal"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-fairfeedback-002
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "Death Rose color = #FF3366 (Danger Rose) overlaid on killer gate cells"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-fairfeedback-003
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "1.0Hz pulse animation during feedback window"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-fairfeedback-004
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "FEEDBACK_SHOWN / FEEDBACK_DISMISSED events bracket the overlay lifecycle"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-fairfeedback-005
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "Tap-to-skip: TAP_DETECTED during feedback dismisses early and emits FEEDBACK_DISMISSED"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-fairfeedback-006
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "killerGateCells: CellCoord[] rendered with Danger Rose overlay during feedback"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-fairfeedback-007
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "DeathReplay reads GridSimulation.getCellState() read-only snapshot (ADR-0003 Exception 2)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-fairfeedback-008
+    system: fairfeedback
+    gdd: design/gdd/fair-feedback.md
+    requirement: "Feedback does not block round progression — other players' gameplay continues during feedback window"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # ROUND MANAGER (Feature)
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-roundmanager-001
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "Goal Cell placement at path[N-1] default; path[N-2] if first-cycle explosion would occupy N-1"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-002
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "Goal Cell detection on PLAYER_ARRIVED (not PLAYER_MOVED) — player must complete tween"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-003
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "ROUND_STARTED { roundNumber, ctx } emitted at round open; setGatePeriod called before emit (same frame)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-004
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "ROUND_CLEAR { roundNumber, survivors } emitted when Goal Cell reached or time limit expires (server-authoritative)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-005
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "GAME_OVER { finalRound, rankings } emitted when survivor count ≤ 1 or server ends session"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-006
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "ROUND_TIME_LIMIT = 60s per round; timeout triggers ROUND_CLEAR with survivors[] = live players"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-007
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "ROUND_CLEAR_DISPLAY_DURATION = 1500ms between ROUND_CLEAR emit and next ROUND_STARTED"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-008
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "EC-RM-5b: GRID_STALLED canonical 3-way chain (PatternLibrary → RoundEscalation → PatternLibrary → GridSimulation empty-pattern terminator)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-009
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "Simultaneous Goal Cell arrival tie-break rule (same frame, multiple PLAYER_ARRIVED on Goal)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-010
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "ALIVE_COUNT_CHANGED { count } emitted on each PLAYER_KILLED"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-011
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "GOAL_PLACED { cell: CellCoord, roundNumber } emitted after Goal cell selection on ROUND_STARTED"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundmanager-012
+    system: roundmanager
+    gdd: design/gdd/round-manager.md
+    requirement: "Survival Cycle-Revive rule: revive conditions and timing for survival mode respawn"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # ROUND ESCALATION (Feature)
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-roundescalation-001
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "F-RE-1 GATE_PERIOD(R) = max(GATE_PERIOD_FLOOR=1.4, GATE_PERIOD_BASE=2.0 − (R−1) × GATE_PERIOD_STEP=0.05)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-002
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "Tier weight table: R1-3 (100/0/0), R4-6 (70/30/0), R7-10 (30/70/0), R11-14 (0/60/40), R15+ (0/20/80)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-003
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "Deterministic tier selection from tier weights using server seed (same seed → same tier sequence)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-004
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "ESCALATION_COMPUTED { ctx: EscalationContext } emitted from RoundManager.startRound() immediately after ROUND_STARTED"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-005
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "EscalationContext { roundNumber, gatePeriod, tier, tierWeights, stalledFallback: boolean }"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-006
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "stalledFallback=true flag on ESCALATION_COMPUTED when emitted from GRID_STALLED handler (not from startRound)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-007
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "F-RE-3 fallbackTier = max(1, lastTier − 1) on GRID_STALLED — demote one tier toward T1"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-008
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "GRID_STALLED handler MUST NOT call setGatePeriod (gate rhythm continuity preserved through fallback chain)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-009
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "AC-RE-09: gatePeriod applied same-frame as ROUND_STARTED emit (setGatePeriod called before emit)"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-roundescalation-010
+    system: roundescalation
+    gdd: design/gdd/round-escalation.md
+    requirement: "GATE_PERIOD_FLOOR >= 1.2s invariant — enforces SAFE_WIN_MIN = 0.45s for all R"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # MATCHMAKING (Feature) — network / session
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-matchmaking-001
+    system: matchmaking
+    gdd: design/gdd/round-manager.md
+    requirement: "MATCH_READY { sessionId, playerIds, localPlayerId, serverTime } received from server when 6 players assembled"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-matchmaking-002
+    system: matchmaking
+    gdd: design/gdd/round-manager.md
+    requirement: "AUTH { token, sessionId? } sent to server on connect using TossBridge.getUserToken()"
+    created: 2026-04-22
+    revised: ""
+    status: active
+
+  - id: TR-matchmaking-003
+    system: matchmaking
+    gdd: design/gdd/round-manager.md
+    requirement: "Graceful degenerate match handling: 2-5 players allowed per ADR-0014 OQ-5 decision (MIN_MATCH_SIZE=2 confirmed)"
+    created: 2026-04-22
+    revised: 2026-04-28
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # HUD (Presentation) — ADR-0016
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-hud-001
+    system: hud
+    gdd: design/ux/hud.md
+    requirement: "HUDLayer applies SafeArea insets via TossBridge.getSafeArea() exactly once after init() — no per-child getSafeArea() calls (ADR-0016 AC-HUD-01/AC-HUD-02)"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-hud-002
+    system: hud
+    gdd: design/ux/hud.md
+    requirement: "ROUND_STARTED 수신 시 round number Label 갱신; ALIVE_COUNT_CHANGED 수신 시 alive Label 갱신 (ADR-0016 AC-HUD-03 + round-manager event contract)"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-hud-003
+    system: hud
+    gdd: design/ux/hud.md
+    requirement: "Timer countdown via FrameClock dt — ROUND_END/GAME_OVER 시 정지, 다음 ROUND_STARTED 시 재시작"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-hud-004
+    system: hud
+    gdd: design/ux/hud.md
+    requirement: "GridLayer 64-cell pre-allocated 시각 배열, CELL_STATE_CHANGED → 색상 토글, GOAL_PLACED → highlight, ROUND_STARTED → 이전 highlight 해제"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-hud-005
+    system: hud
+    gdd: design/ux/result.md
+    requirement: "ResultOverlay shown on GAME_OVER/ROUND_CLEAR with 300ms 납득 지연, FIFO 가드 (한 사이클 1회), Restart 시 sessionFlow.reset() 호출 후 hide"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # AUDIO (Presentation) — ADR-0016 § 2/3
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-audio-001
+    system: audio
+    gdd: docs/architecture/adr-0016-hud-safe-area-audio.md
+    requirement: "3-channel AudioManager: BGM (loop:true, vol:0.5) / SFX (vol:0.8) / UIFeedback (vol:0.9). 채널별 독립 볼륨 제어 (ADR-0016 § 2 + AC-HUD-04)"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-audio-002
+    system: audio
+    gdd: docs/architecture/adr-0016-hud-safe-area-audio.md
+    requirement: "AUDIO_EVENT 라우팅 — key→channel 매핑으로 cc.AudioSource 직접 노출 차단 (ADR-0016 § 3)"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-audio-003
+    system: audio
+    gdd: docs/architecture/adr-0016-hud-safe-area-audio.md
+    requirement: "cc.Game.EVENT_HIDE/SHOW 수신 시 BGM 일시정지/재개 (ADR-0016 § 4 — webview visibility) — 실기기 검증 필요 (AC-HUD-05)"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  # ════════════════════════════════════════════════════════════════════════
+  # SESSION FLOW + PAUSE + SETTINGS (Feature) — Sprint 4-6
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: TR-session-001
+    system: session
+    gdd: production/epics/roundmanager/story-003-session-flow-stub.md
+    requirement: "SessionFlow MENU → MATCH → RESULT → MENU 상태 기계. GAME_OVER/ROUND_CLEAR 수신 시 RESULT, reset() 호출 시 MENU"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-session-002
+    system: session
+    gdd: design/ux/pause.md
+    requirement: "PauseController — MATCH 상태에서만 pause() 가능, GAME_PAUSED/GAME_RESUMED 이벤트 emit, FrameClock.tick 중단을 외부 콜러에 위임 (Cocos cc.Component.update에서 isPaused() 체크)"
+    created: 2026-04-28
+    revised: ""
+    status: active
+
+  - id: TR-session-003
+    system: session
+    gdd: design/ux/settings.md
+    requirement: "SettingsState — reducedMotion + 3채널 볼륨 in-memory state, SETTINGS_CHANGED 이벤트 emit (변경 발생 시에만), persistence는 Sprint 7+ 처리 (TD-P2-01)"
+    created: 2026-04-28
+    revised: ""
+    status: active

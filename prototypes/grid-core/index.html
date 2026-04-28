@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Grid Core v4 — Path Gates</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d0d1a; display:flex; flex-direction:column;
+         align-items:center; justify-content:center; height:100vh; overflow:hidden; }
+  canvas { display:block; touch-action:none; }
+  #hint { color:#333; font:10px/1.8 monospace; margin-top:5px; text-align:center; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">조이스틱 이동 &nbsp;|&nbsp; ★ 도달 = 클리어 &nbsp;|&nbsp; 죽으면 탭 재시작</div>
+<script>
+// PROTOTYPE v4 - NOT FOR PRODUCTION
+// Redesign: fixed path + cyclic gate bombs (파도처럼 순차 개방되는 게이트)
+// Player navigates from S to ★, timing through 4 staggered bomb gates
+// Date: 2026-04-21
+
+const CV = document.getElementById('c');
+const X  = CV.getContext('2d');
+
+// ── Tuning ────────────────────────────────────────────────────────────────────
+const T_EX        = 0.35;                         // 폭발 지속 (경고 없음)
+const GATE_PERIOD = 2.0;                          // 한 사이클 (s)
+const SAFE_WIN    = GATE_PERIOD - T_EX;           // 1.65s 안전 창
+const TWEEN       = 0.1;
+const GRID        = 8;
+
+// ── Path (S → ★, C자형) ───────────────────────────────────────────────────────
+//
+//  0  1  2  3  4  5  6  7
+//  .  ★  .  .  .  .  .  .   row 0
+//  .  P  .  .  .  .  .  .   row 1
+//  .  P  .  .  .  .  .  .   row 2
+//  .  P  .  .  .  .  .  .   row 3
+//  .  P  P  P  .  .  .  .   row 4
+//  .  .  .  P  .  .  .  .   row 5
+//  .  .  .  P  .  .  .  .   row 6
+//  .  S  P  P  .  .  .  .   row 7
+//
+const PATH = [
+    [7,1],                        // start
+    [7,2],[7,3],                  // →  seg1
+    [6,3],[5,3],[4,3],            // ↑  seg2
+    [4,2],[4,1],                  // ←  seg3
+    [3,1],[2,1],[1,1],            // ↑  seg4  → goal
+];
+const START_R=7, START_C=1;
+const GOAL_R=1,  GOAL_C=1;
+const pathSet = new Set(PATH.map(([r,c])=>`${r},${c}`));
+
+// ── Gates (순차 개방 — 파도처럼 열림) ─────────────────────────────────────────
+// 게이트가 SAFE 되는 실시간: t_open = (GATE_PERIOD - offset) % GATE_PERIOD
+//   G1 opens at t=0.7s, G2=1.2s, G3=1.7s, G4=2.2s  (0.5s 간격 파도)
+// 플레이어는 파도가 열리는 순서대로 따라가면 최적 경로
+const GATES = [
+    { r:7, c:2, offset:2.3 },   // gate 1 — seg1 진입
+    { r:5, c:3, offset:1.8 },   // gate 2 — seg2 중간
+    { r:4, c:2, offset:1.3 },   // gate 3 — seg3 코너
+    { r:2, c:1, offset:0.8 },   // gate 4 — seg4 마지막
+];
+const gateMap = new Map(GATES.map(g=>[`${g.r},${g.c}`,g]));
+
+// ── Colors ────────────────────────────────────────────────────────────────────
+const COL = {
+    bg:    '#0d0d1a',
+    idle:  '#1a1a2e',
+    path:  '#0d3050',        // 경로 셀 (밝은 파랑 — idle 대비 명확)
+    w1:    '#ffc800',
+    w2:    '#ff6400',
+    im:    '#ff1e1e',
+    ex:    '#b40000',
+    grid:  'rgba(50,50,80,0.35)',
+    white: '#ffffff',
+    cyan:  '#00e5cc',
+    dead:  'rgba(96,96,96,0.7)',
+    deadx: 'rgba(255,44,44,0.85)',
+};
+
+// ── Direction table (canvas Y-down) ──────────────────────────────────────────
+const DR      = [ 0,+1,+1,+1, 0,-1,-1,-1];
+const DC      = [+1,+1, 0,-1,-1,-1, 0,+1];
+const DIR_DEG = [ 0,45,90,135,180,-135,-90,-45];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let cs, ox, oy;
+let pr=START_R, pc=START_C, alive=true;
+let vx=0, vy=0, fx=0, fy=0, tx=0, ty=0, tt=1;
+let lastDir=6, buf=null;
+let ts0=null;
+let globalT=0;          // 게이트 리듬은 리셋 없이 계속 흐름
+let round=0, deaths=0;
+let lastNow=0;
+
+function cx(col){ return ox+col*cs+cs*.5; }
+function cy(row){ return oy+row*cs+cs*.5; }
+
+function layout(){
+    CV.width=window.innerWidth; CV.height=window.innerHeight;
+    const dim=Math.min(CV.width,CV.height)*.9;
+    cs=dim/GRID; ox=(CV.width-dim)*.5; oy=(CV.height-dim)*.5;
+}
+
+// ── 게이트 상태 계산 ──────────────────────────────────────────────────────────
+function gateState(gate, t){
+    const p=((t+gate.offset)%GATE_PERIOD+GATE_PERIOD)%GATE_PERIOD;
+    return p<SAFE_WIN ? 'IDLE' : 'EX';
+}
+
+// ── 플레이어 ──────────────────────────────────────────────────────────────────
+function resetPlayer(){
+    pr=START_R; pc=START_C; alive=true; tt=1; buf=null; lastDir=6;
+    vx=cx(START_C); vy=cy(START_R);
+    // globalT 리셋 안 함 — 세계 리듬은 계속 흐름
+}
+
+function checkGateDeath(r,c){
+    const g=gateMap.get(`${r},${c}`);
+    if(g && gateState(g,globalT)==='EX'){ alive=false; deaths++; return true; }
+    return false;
+}
+
+function exec(dir,nr,nc){
+    lastDir=dir;
+    fx=vx; fy=vy; tx=cx(nc); ty=cy(nr); tt=0;
+    pr=nr; pc=nc;
+    if(nr===GOAL_R && nc===GOAL_C){ round++; resetPlayer(); return; }
+    checkGateDeath(nr,nc);
+}
+
+function tryMove(dir){
+    const nr=pr+DR[dir],nc=pc+DC[dir];
+    if(nr<0||nr>=GRID||nc<0||nc>=GRID) return;
+    if(!pathSet.has(`${nr},${nc}`)) return;   // 경로 외 이동 차단
+    if(tt<1){ buf=dir; return; }
+    exec(dir,nr,nc);
+}
+
+// ── Joystick state ────────────────────────────────────────────────────────────
+const JOY_OUTER     = 60;
+const JOY_INNER     = 22;
+const JOY_THRESHOLD = 18;
+const MOVE_REPEAT   = 0.22;   // 초 — 연속 이동 간격
+let joyActive=false, joyOX=0,joyOY=0, joyCX=0,joyCY=0;
+let joyDir=-1, moveTimer=0;
+
+function joyMove(cx2,cy2){
+    if(!joyActive) return;
+    joyCX=cx2; joyCY=cy2;
+    const dx=joyCX-joyOX, dy=joyCY-joyOY;
+    if(Math.hypot(dx,dy)>JOY_THRESHOLD){
+        let a=Math.atan2(dy,dx)*180/Math.PI; if(a<0)a+=360;
+        const dir=Math.round(a/45)%8;
+        if(dir!==joyDir){ joyDir=dir; moveTimer=0; } // 방향 바뀌면 즉시 발사
+    } else { joyDir=-1; }
+}
+
+CV.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    if(!alive){ resetPlayer(); return; }
+    const t=e.touches[0];
+    joyActive=true; joyDir=-1; moveTimer=0;
+    joyOX=joyCX=t.clientX; joyOY=joyCY=t.clientY;
+},{passive:false});
+CV.addEventListener('touchmove',e=>{
+    e.preventDefault(); joyMove(e.touches[0].clientX,e.touches[0].clientY);
+},{passive:false});
+CV.addEventListener('touchend',e=>{
+    e.preventDefault(); joyActive=false; joyDir=-1;
+},{passive:false});
+CV.addEventListener('touchcancel',e=>{ joyActive=false; joyDir=-1; },{passive:false});
+CV.addEventListener('mousedown',e=>{
+    if(!alive){ resetPlayer(); return; }
+    joyActive=true; joyDir=-1; moveTimer=0;
+    joyOX=joyCX=e.clientX; joyOY=joyCY=e.clientY;
+});
+CV.addEventListener('mousemove',e=>{ if(e.buttons) joyMove(e.clientX,e.clientY); });
+CV.addEventListener('mouseup',e=>{ joyActive=false; joyDir=-1; });
+
+// ── Update ────────────────────────────────────────────────────────────────────
+function update(dt){
+    globalT+=dt;
+    // 조이스틱 연속 이동
+    if(joyDir!==-1 && alive){
+        moveTimer-=dt;
+        if(moveTimer<=0){ tryMove(joyDir); moveTimer=MOVE_REPEAT; }
+    }
+    if(tt<1){
+        tt=Math.min(1,tt+dt/TWEEN);
+        vx=fx+(tx-fx)*tt; vy=fy+(ty-fy)*tt;
+        if(tt>=1&&buf!==null){
+            const b=buf; buf=null;
+            const nr=pr+DR[b],nc=pc+DC[b];
+            if(nr>=0&&nr<GRID&&nc>=0&&nc<GRID) exec(b,nr,nc);
+        }
+    }
+    if(!alive) return;
+    // 서있는 동안 게이트가 EX로 전환되면 즉사
+    checkGateDeath(pr,pc);
+}
+
+// ── Draw ──────────────────────────────────────────────────────────────────────
+function draw(){
+    const hs=cs*.5-1.5;
+    X.fillStyle=COL.bg; X.fillRect(0,0,CV.width,CV.height);
+
+    // 셀 그리기
+    for(let r=0;r<GRID;r++) for(let c=0;c<GRID;c++){
+        const cellX=cx(c),cellY=cy(r),key=`${r},${c}`;
+        const gate=gateMap.get(key);
+        let fill=pathSet.has(key)?COL.path:COL.idle;
+        if(gate){
+            fill = gateState(gate,globalT)==='EX' ? COL.ex : COL.path;
+        }
+        X.fillStyle=fill;
+        X.fillRect(cellX-hs,cellY-hs,hs*2,hs*2);
+        X.strokeStyle=COL.grid; X.lineWidth=1;
+        X.strokeRect(cellX-hs,cellY-hs,hs*2,hs*2);
+    }
+
+    // 경로 연결선 (solid — 경로를 명확히 표시)
+    X.strokeStyle='rgba(0,229,204,0.45)'; X.lineWidth=3;
+    X.lineJoin='round'; X.lineCap='round';
+    X.beginPath();
+    X.moveTo(cx(PATH[0][1]),cy(PATH[0][0]));
+    for(let i=1;i<PATH.length;i++) X.lineTo(cx(PATH[i][1]),cy(PATH[i][0]));
+    X.stroke();
+
+    // S (시작) 마커
+    X.fillStyle='rgba(255,255,255,0.25)';
+    X.font=`bold ${Math.round(cs*.3)}px monospace`;
+    X.textAlign='center'; X.textBaseline='middle';
+    X.fillText('S',cx(START_C),cy(START_R));
+
+    // ★ (목표) 마커
+    const gx=cx(GOAL_C),gy=cy(GOAL_R);
+    X.fillStyle='rgba(0,229,204,0.12)'; X.fillRect(gx-hs,gy-hs,hs*2,hs*2);
+    X.strokeStyle=COL.cyan; X.lineWidth=2.5;
+    X.strokeRect(gx-hs+1,gy-hs+1,hs*2-2,hs*2-2);
+    X.fillStyle=COL.cyan;
+    X.font=`${Math.round(cs*.38)}px sans-serif`;
+    X.fillText('★',gx,gy);
+
+
+    // 플레이어 (살아있을 때)
+    if(alive){
+        const ps=cs*.3;
+        X.strokeStyle=COL.white; X.lineWidth=2;
+        X.strokeRect(vx-ps,vy-ps,ps*2,ps*2);
+        const rad=DIR_DEG[lastDir]*Math.PI/180,ts2=cs*.175;
+        const tipX=vx+Math.cos(rad)*ts2*1.8,tipY=vy+Math.sin(rad)*ts2*1.8;
+        X.fillStyle=COL.cyan;
+        X.beginPath();
+        X.moveTo(tipX+Math.cos(rad)*ts2,         tipY+Math.sin(rad)*ts2);
+        X.lineTo(tipX+Math.cos(rad+2.4)*ts2*.55, tipY+Math.sin(rad+2.4)*ts2*.55);
+        X.lineTo(tipX+Math.cos(rad-2.4)*ts2*.55, tipY+Math.sin(rad-2.4)*ts2*.55);
+        X.closePath(); X.fill();
+    } else {
+        const dpx=cx(pc),dpy=cy(pr),ps=cs*.3;
+        X.strokeStyle=COL.dead; X.lineWidth=1;
+        X.strokeRect(dpx-ps,dpy-ps,ps*2,ps*2);
+        X.strokeStyle=COL.deadx; X.lineWidth=2;
+        X.beginPath();
+        X.moveTo(dpx-ps*.6,dpy-ps*.6); X.lineTo(dpx+ps*.6,dpy+ps*.6);
+        X.moveTo(dpx+ps*.6,dpy-ps*.6); X.lineTo(dpx-ps*.6,dpy+ps*.6);
+        X.stroke();
+        X.fillStyle='rgba(255,255,255,0.38)';
+        X.font=`bold ${Math.round(cs*.27)}px monospace`;
+        X.textAlign='center'; X.textBaseline='top';
+        X.fillText('TAP TO RESTART',CV.width/2,oy+GRID*cs+cs*.25);
+    }
+
+    // 조이스틱
+    if(joyActive){
+        X.strokeStyle='rgba(0,229,204,0.45)'; X.lineWidth=2;
+        X.beginPath(); X.arc(joyOX,joyOY,JOY_OUTER,0,Math.PI*2); X.stroke();
+        X.strokeStyle='rgba(0,229,204,0.15)'; X.lineWidth=1;
+        X.beginPath(); X.arc(joyOX,joyOY,JOY_THRESHOLD,0,Math.PI*2); X.stroke();
+        const ddx=joyCX-joyOX, ddy=joyCY-joyOY;
+        const dist=Math.min(Math.hypot(ddx,ddy),JOY_OUTER);
+        const ang=Math.atan2(ddy,ddx);
+        const dotX=joyOX+Math.cos(ang)*dist, dotY=joyOY+Math.sin(ang)*dist;
+        X.fillStyle='rgba(0,229,204,0.75)';
+        X.beginPath(); X.arc(dotX,dotY,JOY_INNER,0,Math.PI*2); X.fill();
+    } else {
+        // 힌트 링 (화면 하단)
+        X.strokeStyle='rgba(0,229,204,0.1)'; X.lineWidth=2;
+        X.beginPath(); X.arc(CV.width/2,CV.height-70,JOY_OUTER,0,Math.PI*2); X.stroke();
+    }
+
+    // HUD
+    X.textBaseline='alphabetic';
+    X.font='12px monospace'; X.textAlign='left';
+    X.fillStyle='rgba(0,229,204,0.6)';
+    X.fillText(`clear:${round}  deaths:${deaths}`,ox,oy-8);
+
+    // 범례
+    const leg=[['EX',COL.ex],['GATE','rgba(0,229,204,0.5)']];
+    let lx=ox; X.font='10px monospace'; X.textBaseline='alphabetic';
+    for(const[lb,col]of leg){
+        X.fillStyle=col; X.fillRect(lx,oy+GRID*cs+5,9,9);
+        X.fillStyle='rgba(180,180,180,0.4)'; X.textAlign='left';
+        X.fillText(lb,lx+12,oy+GRID*cs+14); lx+=52;
+    }
+}
+
+// ── Loop ──────────────────────────────────────────────────────────────────────
+function loop(now){
+    const dt=Math.min((now-lastNow)/1000,.05); lastNow=now;
+    update(dt); draw(); requestAnimationFrame(loop);
+}
+window.addEventListener('resize',()=>{layout();vx=cx(pc);vy=cy(pr);});
+layout(); vx=cx(START_C); vy=cy(START_R);
+requestAnimationFrame(now=>{lastNow=now;requestAnimationFrame(loop);});
+</script>
+</body>
+</html>

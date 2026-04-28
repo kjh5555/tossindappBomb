@@ -5,44 +5,45 @@
 
 ## Engine & Language
 
-- **Engine**: [TO BE CONFIGURED — run /setup-engine]
-- **Language**: [TO BE CONFIGURED]
-- **Rendering**: [TO BE CONFIGURED]
-- **Physics**: [TO BE CONFIGURED]
+- **Engine**: Cocos Creator 3.8.6
+- **Language**: TypeScript
+- **Rendering**: 2D (Canvas / WebGL)
+- **Physics**: Cocos Built-in 2D Physics
 
 ## Input & Platform
 
 <!-- Written by /setup-engine. Read by /ux-design, /ux-review, /test-setup, /team-ui, and /dev-story -->
 <!-- to scope interaction specs, test helpers, and implementation to the correct input methods. -->
 
-- **Target Platforms**: [TO BE CONFIGURED — e.g., PC, Console, Mobile, Web]
-- **Input Methods**: [TO BE CONFIGURED — e.g., Keyboard/Mouse, Gamepad, Touch, Mixed]
-- **Primary Input**: [TO BE CONFIGURED — the dominant input for this game]
-- **Gamepad Support**: [TO BE CONFIGURED — Full / Partial / None]
-- **Touch Support**: [TO BE CONFIGURED — Full / Partial / None]
-- **Platform Notes**: [TO BE CONFIGURED — any platform-specific UX constraints]
+- **Target Platforms**: 모바일 (토스 인토스 webview)
+- **Input Methods**: Touch
+- **Primary Input**: Touch
+- **Gamepad Support**: None
+- **Touch Support**: Full
+- **Platform Notes**: 토스 인토스 webview 내 실행. `@apps-in-toss/web-framework` SDK 연동 필수. 모든 UI는 터치 전용으로 설계. hover 인터랙션 사용 금지. 안전 영역(safe area) 고려 필수.
 
 ## Naming Conventions
 
-- **Classes**: [TO BE CONFIGURED]
-- **Variables**: [TO BE CONFIGURED]
-- **Signals/Events**: [TO BE CONFIGURED]
-- **Files**: [TO BE CONFIGURED]
-- **Scenes/Prefabs**: [TO BE CONFIGURED]
-- **Constants**: [TO BE CONFIGURED]
+- **Classes**: PascalCase (e.g., `GridManager`, `PlayerNode`)
+- **Variables**: camelCase (e.g., `moveSpeed`, `currentRound`)
+- **Methods**: camelCase (e.g., `onCellExplode()`, `startRound()`)
+- **Signals/Events**: on + PascalCase (e.g., `onGameOver`, `onRoundStart`)
+- **Files**: PascalCase matching class (e.g., `GridManager.ts`, `PlayerNode.ts`)
+- **Scenes/Prefabs**: PascalCase (e.g., `GameScene.scene`, `CellPrefab.prefab`)
+- **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_ROUND`, `GRID_SIZE`, `EXPLOSION_DELAY`)
 
 ## Performance Budgets
 
-- **Target Framerate**: [TO BE CONFIGURED]
-- **Frame Budget**: [TO BE CONFIGURED]
-- **Draw Calls**: [TO BE CONFIGURED]
-- **Memory Ceiling**: [TO BE CONFIGURED]
+- **Target Framerate**: 60fps
+- **Frame Budget**: 16.6ms
+- **Draw Calls**: ≤50 (모바일 webview 기준)
+- **Memory Ceiling**: ≤150MB (모바일 webview 기준)
 
 ## Testing
 
-- **Framework**: [TO BE CONFIGURED]
-- **Minimum Coverage**: [TO BE CONFIGURED]
-- **Required Tests**: Balance formulas, gameplay systems, networking (if applicable)
+- **Framework**: Cocos Creator 내장 테스트 또는 Jest (TypeScript unit tests)
+- **Minimum Coverage**: 핵심 게임 로직 70% (그리드 폭발 시스템, 라운드 매니저, 멀티플레이어 동기화)
+- **Required Tests**: 그리드 폭발 패턴 유효성, 라운드 에스컬레이션 로직, WebSocket 메시지 처리
 
 ## Forbidden Patterns
 
@@ -52,7 +53,7 @@
 ## Allowed Libraries / Addons
 
 <!-- Add approved third-party dependencies here -->
-- [None configured yet — add as dependencies are approved]
+- `@apps-in-toss/web-framework` — 토스 인토스 SDK (필수)
 
 ## Architecture Decisions Log
 
@@ -65,23 +66,22 @@
 <!-- Read by /code-review, /architecture-decision, /architecture-review, and team skills -->
 <!-- to know which specialist to spawn for engine-specific validation. -->
 
-- **Primary**: [TO BE CONFIGURED — run /setup-engine]
-- **Language/Code Specialist**: [TO BE CONFIGURED]
-- **Shader Specialist**: [TO BE CONFIGURED]
-- **UI Specialist**: [TO BE CONFIGURED]
-- **Additional Specialists**: [TO BE CONFIGURED]
-- **Routing Notes**: [TO BE CONFIGURED]
+- **Primary**: gameplay-programmer
+- **Language/Code Specialist**: gameplay-programmer (TypeScript 게임 로직)
+- **Shader Specialist**: technical-artist (셰이더/비주얼 이펙트)
+- **UI Specialist**: ui-programmer (UI 컴포넌트, 화면 전환)
+- **Additional Specialists**: network-programmer (WebSocket 멀티플레이어 시스템)
+- **Routing Notes**: gameplay-programmer를 게임 로직 및 아키텍처 기본으로 사용. UI 구현은 ui-programmer에 위임. WebSocket 서버 및 동기화 코드는 network-programmer에 위임. 비주얼 이펙트/파티클은 technical-artist에 위임.
 
 ### File Extension Routing
 
 <!-- Skills use this table to select the right specialist per file type. -->
-<!-- If a row says [TO BE CONFIGURED], fall back to Primary for that file type. -->
 
 | File Extension / Type | Specialist to Spawn |
 |-----------------------|---------------------|
-| Game code (primary language) | [TO BE CONFIGURED] |
-| Shader / material files | [TO BE CONFIGURED] |
-| UI / screen files | [TO BE CONFIGURED] |
-| Scene / prefab / level files | [TO BE CONFIGURED] |
-| Native extension / plugin files | [TO BE CONFIGURED] |
-| General architecture review | Primary |
+| Game code (.ts files) | gameplay-programmer |
+| UI / screen files (UI 컴포넌트, .ts + 씬) | ui-programmer |
+| Shader / effect files | technical-artist |
+| Scene / prefab / level files (.scene, .prefab) | gameplay-programmer |
+| WebSocket / networking code | network-programmer |
+| General architecture review | gameplay-programmer |

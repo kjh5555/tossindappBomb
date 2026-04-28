@@ -43,7 +43,29 @@ last_updated: ""
 # interface: how other systems access this state (read-only property, method call,
 #   signal, shared resource, etc.) — this is the contract other ADRs depend on.
 
-state_ownership: []
+state_ownership:
+  - state: gate_period
+    status: active
+    owner_system: grid-simulation
+    adr: docs/architecture/adr-0006-gate-period.md
+    interface: "GridSimulation.setGatePeriod(seconds: number): void — write by RoundEscalation only. GridSimulation.getGatePeriod(): number — read-only for others."
+    write_access: round-escalation-only   # ADR-0003 Exception 1. 호출 위치: RoundManager.startRound() 내부만
+    referenced_by:
+      - docs/architecture/adr-0006-gate-period.md
+      - docs/architecture/adr-0003-layer-boundaries.md  # Exception 1 직접 호출 허용
+    added: 2026-04-21
+    revised: ""
+
+  - state: player_logical_position
+    status: active
+    owner_system: player-movement
+    adr: docs/architecture/adr-0008-player-movement.md
+    interface: "PLAYER_MOVED { playerId, from: CellCoord, to: CellCoord, timestamp } — 타 시스템은 이벤트로만 위치 수신. PlayerMovement 직접 필드 접근 금지."
+    write_access: player-movement-only
+    referenced_by:
+      - docs/architecture/adr-0008-player-movement.md
+    added: 2026-04-21
+    revised: ""
 
 # Example:
 #
@@ -71,7 +93,34 @@ state_ownership: []
 #
 # pattern options: signal | direct_call | event_bus | shared_resource | rpc | none
 
-interfaces: []
+interfaces:
+  - contract: event_bus_communication
+    status: active
+    pattern: event_bus
+    producer: all-systems
+    consumers:
+      - all-systems
+    adr: docs/architecture/adr-0001-eventbus.md
+    signal_signature: "IEventBus.emit<K extends keyof GameEvents>(key: K, payload: GameEvents[K]): void"
+    notes: "모든 모듈 간 이벤트 통신은 IEventBus 경유 필수. GameEvents 타입 외 키 금지. flush()는 FrameClock.tick 단일 호출자."
+    referenced_by:
+      - docs/architecture/adr-0001-eventbus.md
+    added: 2026-04-21
+    revised: ""
+
+  - contract: pattern_delivery
+    status: active
+    pattern: direct_call
+    producer: pattern-library
+    consumers:
+      - grid-simulation
+    adr: docs/architecture/adr-0007-pattern-library.md
+    signal_signature: "IPatternLibrary.selectPattern(ctx: DifficultyContext, seed: number): ExplodePattern"
+    notes: "선택 실패 3회 시 GRID_STALLED 이벤트 발행. ExplodePattern = { cells: CellCoord[], patternId: string }. bfsVerified=false 패턴은 후보 제외."
+    referenced_by:
+      - docs/architecture/adr-0007-pattern-library.md
+    added: 2026-04-21
+    revised: ""
 
 # Example:
 #
@@ -131,7 +180,39 @@ performance_budgets: []
 # Register an API decision when the choice is non-obvious and other ADRs might
 # make a different choice for the same purpose without knowing this was decided.
 
-api_decisions: []
+api_decisions:
+  - purpose: time_source
+    status: active
+    api: "IFrameClock.now() — simulatedTime (seconds, float, accumulated delta)"
+    not: "Date.now(), performance.now(), director.getTotalTime()"
+    adr: docs/architecture/adr-0002-frameclock.md
+    reason: "결정론적 재생 및 서버-클라이언트 타임스탬프 일치. 단위 테스트에서 tick() 수동 호출로 시간 제어 가능."
+    referenced_by:
+      - docs/architecture/adr-0002-frameclock.md
+    added: 2026-04-21
+    revised: ""
+
+  - purpose: platform_sdk_access
+    status: active
+    api: "ITossBridge — DI로 주입된 인터페이스. getSafeArea(): SafeArea, getUserToken(): string"
+    not: "@apps-in-toss/web-framework 직접 import (Foundation/Core/Feature/Presentation 레이어에서)"
+    adr: docs/architecture/adr-0004-toss-bridge.md
+    reason: "Platform SDK를 직접 import하면 레이어 경계 위반 및 단위 테스트 불가. StubTossBridge DI로 테스트 환경 분리."
+    referenced_by:
+      - docs/architecture/adr-0004-toss-bridge.md
+    added: 2026-04-21
+    revised: ""
+
+  - purpose: websocket_client_access
+    status: active
+    api: "IWebSocketClient — DI로 주입된 인터페이스. connect(), disconnect(), send(), on(), off(), isConnected"
+    not: "native WebSocket API 직접 사용, ws/socket.io 라이브러리 직접 import (게임 로직 레이어에서)"
+    adr: docs/architecture/adr-0010-server-authority.md
+    reason: "WebSocket 직접 의존은 단위 테스트 불가 및 서버 구현 교체 불가. MockWebSocketClient DI로 테스트 환경 분리 가능."
+    referenced_by:
+      - docs/architecture/adr-0010-server-authority.md
+    added: 2026-04-21
+    revised: ""
 
 # Example:
 #
@@ -157,7 +238,76 @@ api_decisions: []
 # Register a pattern when an ADR explicitly bans it AND other ADRs might
 # unknowingly use it (i.e., it's a tempting but wrong approach for this project).
 
-forbidden_patterns: []
+forbidden_patterns:
+  - pattern: direct_cross_module_event
+    status: active
+    description: "모듈 간 이벤트 전달 시 cc.EventTarget 직접 사용 또는 모듈 직접 참조 금지. IEventBus.emit/on 경유 필수."
+    why: "레이어 경계 위반 및 타입 안전성 없음. GameEvents 인터페이스 컴파일 타임 검증이 불가해짐."
+    adr: docs/architecture/adr-0001-eventbus.md
+    added: 2026-04-21
+
+  - pattern: synchronous_eventbus_flush
+    status: active
+    description: "FrameClock.tick() 외부에서 EventBus.flush() 호출 금지."
+    why: "flush() 재진입 시 GRID_STALLED 3자 체인 등 이벤트 루프에서 스택 오버플로우 또는 순서 보장 깨짐."
+    adr: docs/architecture/adr-0001-eventbus.md
+    added: 2026-04-21
+
+  - pattern: direct_time_access
+    status: active
+    description: "게임 로직에서 Date.now() / performance.now() / director.getTotalTime() 직접 사용 금지. IFrameClock.now() (simulatedTime) 사용 필수."
+    why: "비결정론적 결과로 서버-클라이언트 타임스탬프 불일치 및 단위 테스트 불가. 결정론적 재생(DeathReplay) 보장 불가."
+    adr: docs/architecture/adr-0002-frameclock.md
+    added: 2026-04-21
+
+  - pattern: reverse_layer_dependency
+    status: active
+    description: "하위 레이어가 상위 레이어 모듈을 직접 import 금지. Platform→Foundation→Core→Feature→Presentation 방향만 허용."
+    why: "역방향 참조는 순환 의존 및 하위 레이어 단위 테스트 불가 상태를 유발."
+    adr: docs/architecture/adr-0003-layer-boundaries.md
+    added: 2026-04-21
+
+  - pattern: layer_skip_reference
+    status: active
+    description: "레이어를 건너뛰는 직접 참조 금지 (예: Presentation→Core 직접 호출). ADR-0003 명시 예외 2건(DeathReplay→getCellState read-only, RoundEscalation→setGatePeriod)만 허용."
+    why: "레이어 경계 붕괴 방지. 예외 없는 신규 레이어 스킵은 ADR-0003 개정 필요."
+    adr: docs/architecture/adr-0003-layer-boundaries.md
+    added: 2026-04-21
+
+  - pattern: toss_sdk_direct_access
+    status: active
+    description: "Foundation/Core/Feature/Presentation 레이어에서 `@apps-in-toss/web-framework` 직접 import 금지. ITossBridge DI 경유 필수."
+    why: "Platform SDK 직접 의존은 레이어 경계 위반 및 단위 테스트 불가 상태를 유발. StubTossBridge로 테스트 환경 분리 가능."
+    adr: docs/architecture/adr-0004-toss-bridge.md
+    added: 2026-04-21
+
+  - pattern: cellindex_in_game_logic
+    status: active
+    description: "게임 로직(GridSimulation, PlayerMovement, PatternLibrary 등)에서 CellIndex(정수) 직접 사용 금지. CellCoord = {row, col} 사용 필수. CellIndex는 WebSocket/저장 직렬화 경계에서만 사용."
+    why: "CellIndex(number)는 row/col 의미를 잃어버려 함수 인자 swap 버그를 컴파일 타임에 감지 불가. {row,col}과 {x,y} 혼용으로 패턴이 transposed되는 치명적 버그 방지."
+    adr: docs/architecture/adr-0005-cell-coord.md
+    added: 2026-04-21
+
+  - pattern: gate_period_floor_violation
+    status: active
+    description: "GATE_PERIOD_FLOOR를 1.2s 미만으로 설정 금지. setGatePeriod() 호출 시 seconds < GATE_PERIOD_FLOOR 또는 seconds > GATE_PERIOD_BASE 범위 위반 값은 거부 + 경고 로그."
+    why: "GATE_PERIOD_FLOOR < 1.2s 이면 SAFE_WIN = FLOOR - T_EX < 0.85s로 SAFE_WIN_MIN(0.45s) 접근. 최악 조합에서 플레이어가 패턴 인지 전 폭발 가능. 범위 위반 즉시 거부로 설정 실수 조기 감지."
+    adr: docs/architecture/adr-0006-gate-period.md
+    added: 2026-04-21
+
+  - pattern: grid_stalled_setgateperiod
+    status: active
+    description: "GRID_STALLED 핸들러(RoundEscalation) 내부에서 GridSimulation.setGatePeriod() 재호출 금지. GRID_STALLED 체인 중 gatePeriod는 변경하지 않는다."
+    why: "GRID_STALLED 중 setGatePeriod 재호출은 진행 중인 게이트 셀 리듬(offset)을 끊어 플레이어가 예측한 폭발 타이밍을 무효화한다. gatePeriod는 RoundManager.startRound() 에서만 갱신됨 (ADR-0006)."
+    adr: docs/architecture/adr-0009-grid-stalled.md
+    added: 2026-04-21
+
+  - pattern: direct_websocket_bypass
+    status: active
+    description: "IWebSocketClient를 우회한 native WebSocket 직접 사용 금지. 모든 서버 통신은 IWebSocketClient 인터페이스 경유 필수."
+    why: "native WebSocket 직접 사용 시 MockWebSocketClient 주입 불가 → 단위 테스트 불가. 서버 URL 하드코딩, 메시지 타입 안전성 없음, 연결 상태 추적 누락 등 ADR-0010 계약 전체 우회."
+    adr: docs/architecture/adr-0010-server-authority.md
+    added: 2026-04-21
 
 # Example:
 #

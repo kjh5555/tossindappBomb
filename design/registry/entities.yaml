@@ -37,7 +37,8 @@
 #   Each entry: name, status, source, referenced_by[], attributes{}, added, revised
 
 version: 1
-last_updated: ""
+last_updated: "2026-04-21"
+# B-4 / W-5 update (2026-04-21): CellCoord canonical type, ExplodePattern schema, PLAYER_KILLED event schema registered
 
 # ─── ENTITIES ────────────────────────────────────────────────────────────────
 # Named game-world objects: enemies, NPCs, characters, factions, bosses.
@@ -139,7 +140,146 @@ formulas: []
 #
 # Required fields: name, status, source, referenced_by, value, unit, added
 
-constants: []
+constants:
+  - name: GATE_PERIOD_BASE
+    status: active
+    source: design/gdd/grid-explosion.md
+    referenced_by:
+      - design/gdd/grid-explosion.md
+      - design/gdd/round-manager.md
+      - design/gdd/round-escalation.md
+    value: 2.0
+    unit: seconds
+    added: 2026-04-21
+    revised: ""
+
+  - name: GATE_PERIOD_FLOOR
+    status: active
+    source: design/gdd/round-escalation.md
+    referenced_by:
+      - design/gdd/round-escalation.md
+      - design/gdd/grid-explosion.md
+    value: 1.4
+    unit: seconds
+    added: 2026-04-21
+    revised: ""
+
+  - name: GATE_PERIOD_STEP
+    status: active
+    source: design/gdd/round-escalation.md
+    referenced_by:
+      - design/gdd/round-escalation.md
+    value: 0.05
+    unit: seconds_per_round
+    added: 2026-04-21
+    revised: ""
+
+  - name: T_EX
+    status: active
+    source: design/gdd/grid-explosion.md
+    referenced_by:
+      - design/gdd/grid-explosion.md
+      - design/gdd/round-escalation.md
+    value: 0.35
+    unit: seconds
+    added: 2026-04-21
+    revised: ""
+
+  - name: MIN_SAFE_CELLS
+    status: active
+    source: design/gdd/pattern-library.md
+    referenced_by:
+      - design/gdd/pattern-library.md
+      - design/gdd/round-escalation.md
+    value: 8
+    unit: cells
+    added: 2026-04-21
+    revised: ""
+
+  - name: SAFE_WIN_MIN
+    status: active
+    source: design/gdd/round-escalation.md
+    referenced_by:
+      - design/gdd/round-escalation.md
+    value: 0.45
+    unit: seconds
+    notes: >
+      Minimum required safe window (GATE_PERIOD - T_EX) to guarantee
+      "읽으면 이긴다" contract. Enforced by GATE_PERIOD_FLOOR.
+      SAFE_WIN(R_floor) = 1.4 - 0.35 = 1.05s >= 0.45s ✅
+    added: "2026-04-21"
+    revised: ""
+
+# ─── TYPES ───────────────────────────────────────────────────────────────────
+# Named TypeScript interface/type definitions that cross system boundaries.
+# Register a type when its shape is produced by one system and consumed by another.
+#
+# Required fields: name, status, source, referenced_by, definition, added
+
+types:
+  - name: CellCoord
+    status: active
+    source: design/gdd/grid-explosion.md
+    referenced_by:
+      - design/gdd/grid-explosion.md
+      - design/gdd/pattern-library.md
+      - design/gdd/player-movement.md
+      - design/gdd/fair-feedback.md
+      - design/gdd/round-manager.md
+    definition: "{ row: number; col: number }  // row: 0-7, col: 0-7"
+    notes: >
+      Canonical grid coordinate type. All GDDs must use CellCoord[] for cell
+      arrays. When network serialization requires a flat integer, use
+      cellIndex = row * 8 + col and document the conversion explicitly.
+    added: "2026-04-21"
+    revised: ""
+
+  - name: ExplodePattern
+    status: active
+    source: design/gdd/pattern-library.md
+    referenced_by:
+      - design/gdd/pattern-library.md
+      - design/gdd/grid-explosion.md
+    definition: "{ cells: CellCoord[]; patternId: string }"
+    notes: >
+      Contract type passed from pattern-library to grid-explosion each round.
+      safeCellCount is NOT stored — derived as 64 - cells.length.
+      bfsVerified flag lives on PatternRecord (internal to pattern-library) and
+      is not part of the ExplodePattern contract.
+    added: "2026-04-21"
+    revised: ""
+
+  - name: PLAYER_KILLED
+    status: active
+    source: design/gdd/grid-explosion.md
+    referenced_by:
+      - design/gdd/grid-explosion.md
+      - design/gdd/fair-feedback.md
+      - design/gdd/player-movement.md
+      - design/gdd/round-manager.md
+    definition: "{ playerIds: PlayerId[]; cellId: CellCoord; cause: 'EXPLOSION' | 'DANGER_ZONE'; timestamp: number }"
+    notes: >
+      playerIds is an array to handle simultaneous multi-player deaths on the
+      same cell in one event. cause distinguishes direct explosion (cell
+      transitions Idle→Exploded while player is on it) from landing on an
+      already-Exploded cell (DANGER_ZONE).
+    added: "2026-04-21"
+    revised: ""
+
+  - name: PLAYER_ARRIVED
+    status: active
+    source: design/gdd/player-movement.md
+    referenced_by:
+      - design/gdd/player-movement.md
+      - design/gdd/round-manager.md
+    definition: "{ playerId: PlayerId; cell: CellCoord; timestamp: number }"
+    notes: >
+      Emitted by player-movement when the move tween completes (t=0.1s).
+      round-manager subscribes to detect Goal Cell arrival.
+      Distinct from PLAYER_MOVED (emitted at t=0 when logical coord changes).
+    added: "2026-04-21"
+    revised: ""
+
 
 # Example:
 #

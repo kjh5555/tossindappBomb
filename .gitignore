@@ -11,8 +11,13 @@ Desktop.ini
 
 # === Claude Code Local ===
 .claude/settings.local.json
+.claude/agent-memory/
 CLAUDE.local.md
 production/session-logs/
+production/session-state/
+
+# === oh-my-claudecode runtime state (ephemeral) ===
+.omc/
 
 # === Internal Planning (not for public) ===
 
