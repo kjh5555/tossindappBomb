@@ -23,6 +23,11 @@
 import type { SessionDispatcher } from './SessionDispatcher';
 import type { ClientMessages } from '../core/net/WebSocketProtocol';
 import type { PlayerId } from '../core/types/Domain';
+import type { IServerScheduler } from './IServerScheduler';
+import { NodeJsScheduler } from './IServerScheduler';
+
+/** ADR-0011 ROUND_CLEAR_DISPLAY → ROUND_END 1500ms ± 50ms — 서버 측 자동 trigger 시간. */
+export const ROUND_CLEAR_DISPLAY_MS = 1500;
 
 /** Mulberry32 — 32-bit deterministic PRNG. 빠르고 충분한 분포. */
 function mulberry32(seed: number): () => number {
@@ -86,10 +91,14 @@ export class GameSession {
   /** 라운드별 ROUND_CLEAR 발행 guard — race condition 방지. */
   private roundClearedThisRound: boolean = false;
 
+  /** ROUND_CLEAR_DISPLAY 1.5s timer cancel handle — disposal 시 정리. */
+  private clearDisplayCancel: (() => void) | null = null;
+
   constructor(
     private readonly sessionId: string,
     private readonly playerIds: PlayerId[],
     private readonly dispatcher: SessionDispatcher,
+    private readonly scheduler: IServerScheduler = new NodeJsScheduler(),
   ) {
     if (playerIds.length < 1 || playerIds.length > INITIAL_POSITIONS.length) {
       throw new Error(
@@ -192,6 +201,25 @@ export class GameSession {
         survivors,
       },
     });
+
+    // 1.5s 후 자동 advanceRound — ADR-0011 ROUND_CLEAR_DISPLAY → ROUND_END 등가
+    this.clearDisplayCancel = this.scheduler.schedule(() => {
+      this.clearDisplayCancel = null;
+      // 만약 그 사이 GAME_OVER 상태로 전환됐으면 advance 스킵
+      if (this.phase === 'ROUND_CLEAR_DISPLAY') {
+        this.advanceRound();
+      }
+    }, ROUND_CLEAR_DISPLAY_MS);
+  }
+
+  /**
+   * GameSession 종료 — 미완료 timer 취소.
+   */
+  dispose(): void {
+    if (this.clearDisplayCancel) {
+      this.clearDisplayCancel();
+      this.clearDisplayCancel = null;
+    }
   }
 
   /** Test inspection — 현재 라운드 번호. */
@@ -245,6 +273,11 @@ export class GameSession {
    */
   private triggerGameOver(): void {
     if (this.phase === 'GAME_OVER') return;
+    // ROUND_CLEAR_DISPLAY 중 GAME_OVER 발생 시 timer 취소 (예: race로 전원 disconnect)
+    if (this.clearDisplayCancel) {
+      this.clearDisplayCancel();
+      this.clearDisplayCancel = null;
+    }
     this.phase = 'GAME_OVER';
     // 생존자 → rankings 우선 (간단히 alivePlayerIds + 사망 순서 무시 v1)
     const rankings = Array.from(this.alivePlayerIds).concat(

@@ -20,14 +20,19 @@ import type { AuthenticatedClient } from './IServerSocket';
 import type { ClientMessages } from '../core/net/WebSocketProtocol';
 import type { PlayerId } from '../core/types/Domain';
 import type { GameSessionRouter } from './MatchmakingServer';
+import type { IServerScheduler } from './IServerScheduler';
 import { SessionDispatcher } from './SessionDispatcher';
 import { GameSession } from './GameSession';
+import { NodeJsScheduler } from './IServerScheduler';
 
 export class DefaultGameSessionRouter implements GameSessionRouter {
   private readonly sessions: Map<string, GameSession> = new Map();
   private readonly clientByPlayerId: Map<PlayerId, AuthenticatedClient> = new Map();
 
-  constructor(private readonly dispatcher: SessionDispatcher = new SessionDispatcher()) {}
+  constructor(
+    private readonly dispatcher: SessionDispatcher = new SessionDispatcher(),
+    private readonly scheduler: IServerScheduler = new NodeJsScheduler(),
+  ) {}
 
   startSession(sessionId: string, players: AuthenticatedClient[]): void {
     this.dispatcher.registerSession(sessionId, players);
@@ -37,6 +42,7 @@ export class DefaultGameSessionRouter implements GameSessionRouter {
       sessionId,
       players.map((p) => p.playerId),
       this.dispatcher,
+      this.scheduler,
     );
     this.sessions.set(sessionId, game);
     game.startFirstRound();
@@ -89,6 +95,8 @@ export class DefaultGameSessionRouter implements GameSessionRouter {
   }
 
   endSession(sessionId: string): void {
+    const game = this.sessions.get(sessionId);
+    if (game) game.dispose();
     this.dispatcher.endSession(sessionId);
     this.sessions.delete(sessionId);
   }
