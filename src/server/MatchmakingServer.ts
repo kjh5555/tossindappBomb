@@ -39,6 +39,18 @@ export interface GameSessionRouter {
   startSession(sessionId: string, players: AuthenticatedClient[]): void;
   /** MOVE 메시지 처리 — 같은 세션의 다른 client에게 broadcast. */
   handleMove(sessionId: string, playerId: PlayerId, move: ClientMessages['MOVE']): void;
+  /** REPORT_DEATH — 사망 신고 처리 (PLAYER_KILLED broadcast + GAME_OVER 판정). */
+  handleReportDeath(
+    sessionId: string,
+    playerId: PlayerId,
+    report: ClientMessages['REPORT_DEATH'],
+  ): void;
+  /** REPORT_GOAL_REACHED — 골 도달 신고 (첫 신고만, ROUND_CLEAR broadcast). */
+  handleReportGoalReached(
+    sessionId: string,
+    playerId: PlayerId,
+    report: ClientMessages['REPORT_GOAL_REACHED'],
+  ): void;
   /**
    * 클라이언트 disconnect 알림 — dispatcher 정리 + 잠재적 PLAYER_KILLED broadcast
    * (ADR-0010 mitigation: 게임 중 disconnect → 해당 player 사망 처리).
@@ -106,13 +118,32 @@ export class MatchmakingServer {
     // 인증 전 다른 메시지는 무시 (또는 disconnect — 정책에 따라)
     if (!pending.authenticated) return;
 
-    // MOVE 메시지 — 매치 진행 중인 경우 GameSessionRouter로 라우팅
-    if (msg.type === 'MOVE' && pending.sessionId && this.gameRouter) {
-      this.gameRouter.handleMove(
-        pending.sessionId,
-        pending.authenticated.playerId,
-        msg.payload as ClientMessages['MOVE'],
-      );
+    // 게임 메시지 — 매치 진행 중인 경우 GameSessionRouter로 라우팅
+    if (!pending.sessionId || !this.gameRouter) return;
+    const sessionId = pending.sessionId;
+    const playerId = pending.authenticated.playerId;
+
+    switch (msg.type) {
+      case 'MOVE':
+        this.gameRouter.handleMove(sessionId, playerId, msg.payload as ClientMessages['MOVE']);
+        break;
+      case 'REPORT_DEATH':
+        this.gameRouter.handleReportDeath(
+          sessionId,
+          playerId,
+          msg.payload as ClientMessages['REPORT_DEATH'],
+        );
+        break;
+      case 'REPORT_GOAL_REACHED':
+        this.gameRouter.handleReportGoalReached(
+          sessionId,
+          playerId,
+          msg.payload as ClientMessages['REPORT_GOAL_REACHED'],
+        );
+        break;
+      default:
+        // unknown post-match message — silently ignore
+        break;
     }
   }
 

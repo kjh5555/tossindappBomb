@@ -44,8 +44,28 @@ export class DefaultGameSessionRouter implements GameSessionRouter {
 
   handleMove(sessionId: string, playerId: PlayerId, move: ClientMessages['MOVE']): void {
     const game = this.sessions.get(sessionId);
-    if (!game) return; // 세션 미등록 — 무시
+    if (!game) return;
     game.handleMove(playerId, move);
+  }
+
+  handleReportDeath(
+    sessionId: string,
+    playerId: PlayerId,
+    report: ClientMessages['REPORT_DEATH'],
+  ): void {
+    const game = this.sessions.get(sessionId);
+    if (!game) return;
+    game.handleReportDeath(playerId, report);
+  }
+
+  handleReportGoalReached(
+    sessionId: string,
+    playerId: PlayerId,
+    report: ClientMessages['REPORT_GOAL_REACHED'],
+  ): void {
+    const game = this.sessions.get(sessionId);
+    if (!game) return;
+    game.handleReportGoalReached(playerId, report);
   }
 
   onClientDisconnected(sessionId: string, playerId: PlayerId): void {
@@ -55,17 +75,17 @@ export class DefaultGameSessionRouter implements GameSessionRouter {
       this.clientByPlayerId.delete(playerId);
     }
 
-    // ADR-0010 mitigation — 게임 중 disconnect → PLAYER_KILLED broadcast
-    // 다른 player에게 알림. 발신자 본인은 이미 끊겼으므로 broadcast로 충분.
-    this.dispatcher.broadcast(sessionId, {
-      type: 'PLAYER_KILLED',
-      payload: {
-        playerIds: [playerId],
-        cellId: 0, // 알 수 없음 — 클라이언트가 disconnect 사유로 인지
+    // ADR-0010 mitigation — 게임 중 disconnect → 사망 처리 위임 (GAME_OVER 자동)
+    // GameSession.handleReportDeath가 PLAYER_KILLED broadcast + alivePlayerIds 갱신 +
+    // 모두 사망 시 GAME_OVER까지 처리.
+    const game = this.sessions.get(sessionId);
+    if (game) {
+      game.handleReportDeath(playerId, {
+        cellId: 0, // 알 수 없음 — disconnect 시점
         cause: 'EXPLOSION',
         timestamp: Date.now(),
-      },
-    });
+      });
+    }
   }
 
   endSession(sessionId: string): void {

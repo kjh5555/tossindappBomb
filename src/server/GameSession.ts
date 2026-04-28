@@ -65,8 +65,26 @@ const INITIAL_POSITIONS: number[] = [
   36, // (4,4) — center lower
 ];
 
+/** 라운드 phase — 클라이언트 보고 처리에 따라 전환. */
+export type RoundPhase =
+  | 'PRE_ROUND'           // 매치 시작 직후 또는 ROUND_START 직전
+  | 'ROUND_ACTIVE'        // ROUND_START 후, 첫 클리어 보고 전
+  | 'ROUND_CLEAR_DISPLAY' // ROUND_CLEAR 후 advanceRound 직전 (대기)
+  | 'GAME_OVER';          // 게임 종료 — 이후 모든 보고 무시
+
+/**
+ * 본 게임 단일 세션 host. 라운드 진입 + MOVE relay + 사망/클리어 보고 처리.
+ *
+ * MVP 모델: PLAYER_KILLED는 client REPORT_DEATH 신고 → 서버 broadcast.
+ * Sprint 8+: 서버가 GridSimulation으로 자체 검증 → 권위적 발행.
+ */
 export class GameSession {
   private currentRound: number = 0;
+  private phase: RoundPhase = 'PRE_ROUND';
+  /** 현재 라운드 생존자 — 라운드 시작 시 모든 player로 reset. */
+  private readonly alivePlayerIds: Set<PlayerId> = new Set();
+  /** 라운드별 ROUND_CLEAR 발행 guard — race condition 방지. */
+  private roundClearedThisRound: boolean = false;
 
   constructor(
     private readonly sessionId: string,
@@ -86,24 +104,28 @@ export class GameSession {
    */
   startFirstRound(): void {
     this.currentRound = 1;
-    this.broadcastRoundStart();
+    this.beginRound();
   }
 
   /**
-   * 다음 라운드 진행. ROUND_CLEAR 후 호출 (Sprint 8+ 자동 trigger).
+   * 다음 라운드 진행. ROUND_CLEAR 후 호출 (또는 외부 trigger).
+   * GAME_OVER 상태에서는 no-op.
    */
   advanceRound(): void {
+    if (this.phase === 'GAME_OVER') return;
     this.currentRound++;
-    this.broadcastRoundStart();
+    this.beginRound();
   }
 
   /**
    * 클라이언트의 MOVE 메시지 처리 — PLAYER_MOVE를 다른 client에게 broadcast.
    * 발신자 본인은 자체 예측 결과를 이미 표시하고 있으므로 제외 (ADR-0010).
+   * GAME_OVER 또는 ROUND_CLEAR_DISPLAY 중에는 무시.
    */
   handleMove(senderPlayerId: PlayerId, move: ClientMessages['MOVE']): void {
-    // 발신자가 본 세션의 player인지 검증
+    if (this.phase !== 'ROUND_ACTIVE') return;
     if (!this.playerIds.includes(senderPlayerId)) return;
+    if (!this.alivePlayerIds.has(senderPlayerId)) return; // 사망한 player의 MOVE 무시
 
     this.dispatcher.broadcastExcept(this.sessionId, senderPlayerId, {
       type: 'PLAYER_MOVE',
@@ -116,9 +138,75 @@ export class GameSession {
     });
   }
 
+  /**
+   * REPORT_DEATH — 클라이언트가 자기 사망 신고 (cell 폭발 또는 danger zone).
+   * MVP: 검증 없이 PLAYER_KILLED broadcast. 생존자 0명 시 GAME_OVER.
+   */
+  handleReportDeath(
+    senderPlayerId: PlayerId,
+    report: ClientMessages['REPORT_DEATH'],
+  ): void {
+    if (this.phase !== 'ROUND_ACTIVE') return;
+    if (!this.alivePlayerIds.has(senderPlayerId)) return; // 이미 사망 — 중복 무시
+
+    this.alivePlayerIds.delete(senderPlayerId);
+
+    this.dispatcher.broadcast(this.sessionId, {
+      type: 'PLAYER_KILLED',
+      payload: {
+        playerIds: [senderPlayerId],
+        cellId: report.cellId,
+        cause: report.cause,
+        timestamp: report.timestamp,
+      },
+    });
+
+    // 모두 사망 시 GAME_OVER
+    if (this.alivePlayerIds.size === 0) {
+      this.triggerGameOver();
+    }
+  }
+
+  /**
+   * REPORT_GOAL_REACHED — 클라이언트가 골 셀 도달 신고.
+   * 첫 신고만 처리 (FIFO race). ROUND_CLEAR broadcast + ROUND_CLEAR_DISPLAY phase.
+   * 외부 trigger (예: 1.5s timer)로 advanceRound 호출 권장.
+   */
+  handleReportGoalReached(
+    senderPlayerId: PlayerId,
+    report: ClientMessages['REPORT_GOAL_REACHED'],
+  ): void {
+    if (this.phase !== 'ROUND_ACTIVE') return;
+    if (this.roundClearedThisRound) return; // 첫 신고만
+    if (!this.alivePlayerIds.has(senderPlayerId)) return; // 사망자 신고 무시
+    if (report.roundNumber !== this.currentRound) return; // stale report
+
+    this.roundClearedThisRound = true;
+    this.phase = 'ROUND_CLEAR_DISPLAY';
+
+    const survivors = Array.from(this.alivePlayerIds);
+    this.dispatcher.broadcast(this.sessionId, {
+      type: 'ROUND_CLEAR',
+      payload: {
+        roundNumber: this.currentRound,
+        survivors,
+      },
+    });
+  }
+
   /** Test inspection — 현재 라운드 번호. */
   getCurrentRound(): number {
     return this.currentRound;
+  }
+
+  /** Test inspection — 현재 phase. */
+  getPhase(): RoundPhase {
+    return this.phase;
+  }
+
+  /** Test inspection — 현재 생존자. */
+  getAlivePlayerIds(): PlayerId[] {
+    return Array.from(this.alivePlayerIds);
   }
 
   /** Test inspection — 현재 라운드 seed (재계산). */
@@ -126,7 +214,15 @@ export class GameSession {
     return generateRoundSeed(this.sessionId, this.currentRound);
   }
 
-  private broadcastRoundStart(): void {
+  /**
+   * 라운드 시작 — alivePlayerIds 리셋, ROUND_START broadcast, ROUND_ACTIVE phase.
+   */
+  private beginRound(): void {
+    this.alivePlayerIds.clear();
+    for (const p of this.playerIds) this.alivePlayerIds.add(p);
+    this.roundClearedThisRound = false;
+    this.phase = 'ROUND_ACTIVE';
+
     const seed = generateRoundSeed(this.sessionId, this.currentRound);
     const playerPositions: Record<PlayerId, number> = {};
     for (let i = 0; i < this.playerIds.length; i++) {
@@ -139,6 +235,26 @@ export class GameSession {
         roundNumber: this.currentRound,
         seed,
         playerPositions,
+      },
+    });
+  }
+
+  /**
+   * GAME_OVER 발행 — phase 전환 + 모든 player에게 broadcast.
+   * 중복 호출 방지 (phase guard).
+   */
+  private triggerGameOver(): void {
+    if (this.phase === 'GAME_OVER') return;
+    this.phase = 'GAME_OVER';
+    // 생존자 → rankings 우선 (간단히 alivePlayerIds + 사망 순서 무시 v1)
+    const rankings = Array.from(this.alivePlayerIds).concat(
+      this.playerIds.filter((p) => !this.alivePlayerIds.has(p)),
+    );
+    this.dispatcher.broadcast(this.sessionId, {
+      type: 'GAME_OVER',
+      payload: {
+        finalRound: this.currentRound,
+        rankings,
       },
     });
   }

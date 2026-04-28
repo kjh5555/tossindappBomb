@@ -48,6 +48,25 @@ export interface ClientMessages {
     fromCell: CellIndex;
     timestamp: number;
   };
+  /**
+   * 클라이언트가 자기가 사망했음 신고 (cell 폭발 또는 danger zone 착지).
+   * 서버는 검증 없이 PLAYER_KILLED를 모든 client에 broadcast — MVP 모델.
+   * Sprint 8+: 서버가 GridSimulation으로 자체 검증.
+   */
+  REPORT_DEATH: {
+    cellId: CellIndex;
+    cause: 'EXPLOSION' | 'DANGER_ZONE';
+    timestamp: number;
+  };
+  /**
+   * 클라이언트가 골 셀 도달 신고 — 첫 신고만 처리 (FIFO race).
+   * 서버는 ROUND_CLEAR broadcast 후 다음 라운드 진행.
+   */
+  REPORT_GOAL_REACHED: {
+    roundNumber: number;
+    cellId: CellIndex;
+    timestamp: number;
+  };
 }
 
 export type ServerMessage = {
