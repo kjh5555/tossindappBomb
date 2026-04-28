@@ -22,14 +22,38 @@
 
 import type { IServerSocket, AuthenticatedClient } from './IServerSocket';
 import type { ClientMessages } from '../core/net/WebSocketProtocol';
+import type { PlayerId } from '../core/types/Domain';
 import type { IAuthValidator } from './AuthValidator';
 import type { Lobby } from './Lobby';
 import type { SessionInfo } from './SessionManager';
+
+/**
+ * Optional game session router — 매치 시작 후의 라운드/이동 메시지 처리 책임을
+ * 이 인터페이스에 위임. 없으면 MatchmakingServer는 매치 시작까지만 처리하고
+ * 이후 게임 메시지 (MOVE 등)는 무시한다.
+ *
+ * 기본 구현: SessionDispatcher + GameSession (별도 파일).
+ */
+export interface GameSessionRouter {
+  /** 새 세션 시작 — players의 socket을 dispatcher에 등록하고 ROUND_START broadcast. */
+  startSession(sessionId: string, players: AuthenticatedClient[]): void;
+  /** MOVE 메시지 처리 — 같은 세션의 다른 client에게 broadcast. */
+  handleMove(sessionId: string, playerId: PlayerId, move: ClientMessages['MOVE']): void;
+  /**
+   * 클라이언트 disconnect 알림 — dispatcher 정리 + 잠재적 PLAYER_KILLED broadcast
+   * (ADR-0010 mitigation: 게임 중 disconnect → 해당 player 사망 처리).
+   */
+  onClientDisconnected(sessionId: string, playerId: PlayerId): void;
+  /** 세션 종료 + dispatcher 정리. */
+  endSession(sessionId: string): void;
+}
 
 interface PendingClient {
   socket: IServerSocket;
   /** Authenticated 후에는 lobby에 들어간 client reference. AUTH 전이면 null. */
   authenticated: AuthenticatedClient | null;
+  /** 매치 시작 후 sessionId — 매치 후 발생하는 MOVE 등 메시지 라우팅. */
+  sessionId: string | null;
 }
 
 export class MatchmakingServer {
@@ -38,6 +62,7 @@ export class MatchmakingServer {
   constructor(
     private readonly authValidator: IAuthValidator,
     private readonly lobby: Lobby,
+    private readonly gameRouter?: GameSessionRouter,
   ) {}
 
   /**
@@ -48,7 +73,7 @@ export class MatchmakingServer {
       // 동일 id 재진입 — 기존 연결 정리
       this.cleanupSocket(socket.id);
     }
-    const pending: PendingClient = { socket, authenticated: null };
+    const pending: PendingClient = { socket, authenticated: null, sessionId: null };
     this.pending.set(socket.id, pending);
 
     socket.onMessage((msg) => this.handleMessage(socket.id, msg));
@@ -81,8 +106,14 @@ export class MatchmakingServer {
     // 인증 전 다른 메시지는 무시 (또는 disconnect — 정책에 따라)
     if (!pending.authenticated) return;
 
-    // MOVE 등 인증 후 메시지는 게임 세션 핸들러로 라우팅 (Sprint 7+ 통합)
-    // MVP: no-op
+    // MOVE 메시지 — 매치 진행 중인 경우 GameSessionRouter로 라우팅
+    if (msg.type === 'MOVE' && pending.sessionId && this.gameRouter) {
+      this.gameRouter.handleMove(
+        pending.sessionId,
+        pending.authenticated.playerId,
+        msg.payload as ClientMessages['MOVE'],
+      );
+    }
   }
 
   private handleAuth(pending: PendingClient, auth: ClientMessages['AUTH']): void {
@@ -98,8 +129,23 @@ export class MatchmakingServer {
     }
     pending.authenticated = authClient;
     const sessionInfo = this.lobby.onClientAuthenticated(authClient);
-    if (sessionInfo && this.onSessionStarted) {
-      this.onSessionStarted(sessionInfo);
+    if (sessionInfo) {
+      // 매치 시작됐으니 모든 참가 player의 pending에 sessionId 기록
+      // (해당 session 내 client만 추적하도록)
+      const matchedClients: AuthenticatedClient[] = [];
+      for (const p of this.pending.values()) {
+        if (p.authenticated && sessionInfo.playerIds.includes(p.authenticated.playerId)) {
+          p.sessionId = sessionInfo.sessionId;
+          matchedClients.push(p.authenticated);
+        }
+      }
+      // 게임 라우터에 세션 시작 알림 — ROUND_START broadcast 포함
+      if (this.gameRouter) {
+        this.gameRouter.startSession(sessionInfo.sessionId, matchedClients);
+      }
+      if (this.onSessionStarted) {
+        this.onSessionStarted(sessionInfo);
+      }
     }
   }
 
@@ -107,7 +153,12 @@ export class MatchmakingServer {
     const pending = this.pending.get(socketId);
     if (!pending) return;
     if (pending.authenticated) {
-      this.lobby.onClientDisconnected(pending.authenticated);
+      // 매치 진행 중인지 vs 로비 대기 중인지에 따라 라우팅
+      if (pending.sessionId && this.gameRouter) {
+        this.gameRouter.onClientDisconnected(pending.sessionId, pending.authenticated.playerId);
+      } else {
+        this.lobby.onClientDisconnected(pending.authenticated);
+      }
     }
     this.pending.delete(socketId);
   }

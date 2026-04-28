@@ -24,12 +24,15 @@ import { WsServerSocket } from './WsServerSocket';
 import { StubAuthValidator, IAuthValidator } from './AuthValidator';
 import { Lobby } from './Lobby';
 import { SessionManager } from './SessionManager';
-import { MatchmakingServer } from './MatchmakingServer';
+import { MatchmakingServer, GameSessionRouter } from './MatchmakingServer';
+import { DefaultGameSessionRouter } from './DefaultGameSessionRouter';
 
 export interface StartServerOptions {
   port?: number;
   minMatchSize?: number;
   authValidator?: IAuthValidator;
+  /** 게임 세션 라우터 — 미지정 시 DefaultGameSessionRouter 사용. test에서 주입 가능. */
+  gameRouter?: GameSessionRouter;
 }
 
 export interface ServerHandle {
@@ -45,7 +48,8 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
 
   const sessionManager = new SessionManager();
   const lobby = new Lobby(sessionManager, minMatchSize);
-  const matchmaking = new MatchmakingServer(authValidator, lobby);
+  const gameRouter = opts.gameRouter ?? new DefaultGameSessionRouter();
+  const matchmaking = new MatchmakingServer(authValidator, lobby, gameRouter);
 
   const wss = new WebSocketServer({ port });
   wss.on('connection', (ws) => {
